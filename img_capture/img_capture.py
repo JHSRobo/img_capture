@@ -32,7 +32,7 @@ class ImageCaptureNode(Node):
         def img_callback(self, screenshot):
             img = self.bridge.imgmsg_to_cv2(screenshot, desired_encoding="passthrough")
             if self.cropping:
-                img = img[30:720, 0:880]
+                img = img[42:720, 0:1150]
                 cv2.imwrite(f"{self.path}/cropped/{self.cropped_count}.png", img)
                 self.cropped_count += 1 
             else:
