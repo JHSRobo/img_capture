@@ -1,4 +1,4 @@
-![Image][./img/logo.png]
+![Image][./logo/logo.png]
 
 12/3/24 Version 1.0:
 
