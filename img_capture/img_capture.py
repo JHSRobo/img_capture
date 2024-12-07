@@ -27,6 +27,7 @@ class ImageCaptureNode(Node):
         self.camera_feed_subscriber = self.create_subscription(Image, "camera_feed", self.img_callback, 10)
 
     def update_parameters(self):
+        self.log.info("check")
         change = (self.cropping != self.get_parameter("cropping").value)
         self.cropping = self.get_parameter("cropping").value
 
