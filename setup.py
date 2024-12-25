@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            "img_capture = img_capture.img_capture:main"
+            'find_cameras = img_capture.find_cameras:main',
+            'img_capture = img_capture.img_capture:main'
         ],
     },
 )
