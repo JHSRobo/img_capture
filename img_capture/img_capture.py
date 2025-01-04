@@ -3,9 +3,8 @@ import cv2
 import os
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Joy
-from rcl_interfaces.msg import ParameterDescriptor, IntegerRange, SetParametersResult
-from std_srvs.srv import Trigger
+from sensor_msgs.msg import Image
+from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from core.msg import Cam
 from core.srv import AddCamera
 
@@ -19,6 +18,10 @@ from core.srv import AddCamera
         # Neither of these should  be confused with self.active_cameras.
         # self.active cameras contains the ips of all of the currently connected cameras.
         # The config files contain all of the currently configured cameras.
+
+        # The ips are then streamed from to write images to the ./img directory and send camera footage to the shipwreck measurement node.
+        
+        # Written by Jack Frings '26
 
 class Camera_Switcher(Node):
 
@@ -51,6 +54,8 @@ class Camera_Switcher(Node):
 
         # Set up a service for accepting new cameras from find_cameras
         self.camera_adder = self.create_service(AddCamera, "add_ops_camera", self.add_camera_callback)
+        
+        self.shipwreck_pub = self.create_publisher(Image, "shipwreck", 10)
 
         # Callback to capture the images from each feed to ./img contingent on self.recording
         frame_rate = 1.0 / 1000.0 
@@ -79,6 +84,10 @@ class Camera_Switcher(Node):
                     # Find the name of that camera
                     cam_index = self.get_master_index(ip)
                     cam_name = self.master_config[cam_index]["nickname"]
+
+                    if cam_name == "Bottom":
+                        img = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
+                        self.shipwreck_pub.publish(img)
                     # Write the image to the path corresponding to the camera's name
                     cv2.imwrite(f"{self.img_write_path}/{cam_name}/{self.count}.png", frame)
                     self.count += 1
@@ -134,7 +143,7 @@ class Camera_Switcher(Node):
             empty_dict = {}
             self.log.info("cam_config.json not found")
             self.log.info("Creating new camera config")
-            self.log.info("Edit pilot_gui/cam_config.json to save your settings")
+            self.log.info("Edit img_capture/cam_config.json to save your settings")
             with open(self.config_path, "w") as f:
                 json.dump(empty_dict, f)
 
