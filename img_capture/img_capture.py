@@ -7,6 +7,7 @@ from sensor_msgs.msg import Image
 from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from core.msg import Cam
 from core.srv import AddCamera
+from cv_bridge import CvBridge
 
 # NOTE:
         # This program has 2 config dictionaries. 
@@ -23,7 +24,7 @@ from core.srv import AddCamera
         
         # Written by Jack Frings '26
 
-class Camera_Switcher(Node):
+class ImageCaptureNode(Node):
 
     def __init__(self):
         super().__init__('camera_switcher')
@@ -51,10 +52,12 @@ class Camera_Switcher(Node):
         # Opens the JSON config file.
         self.check_config_integrity()
         self.open_config() # Creates both Standard and Master Config.
+        
+        # Bridge to convert received frame to ros2 msgs for shipwreck
+        self.bridge = CvBridge()
 
         # Set up a service for accepting new cameras from find_cameras
         self.camera_adder = self.create_service(AddCamera, "add_ops_camera", self.add_camera_callback)
-        
         self.shipwreck_pub = self.create_publisher(Image, "shipwreck", 10)
 
         # Callback to capture the images from each feed to ./img contingent on self.recording
@@ -240,16 +243,16 @@ def main(args=None):
 
     rclpy.init(args=args)
 
-    camera_switcher = Camera_Switcher()
+    img_capture = ImageCaptureNode()
 
     # Runs the program until shutdown is recieved
-    try: rclpy.spin(camera_switcher)
+    try: rclpy.spin(img_capture)
     except KeyboardInterrupt:
-        save_changes = camera_switcher.get_save_changes()
-        camera_switcher.write_to_config(save_changes)
+        save_changes = img_capture.get_save_changes()
+        img_capture.write_to_config(save_changes)
 
     # On shutdown, kill node
-    camera_switcher.destroy_node()
+    img_capture.destroy_node()
     rclpy.shutdown()
 
 
