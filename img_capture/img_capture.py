@@ -23,6 +23,7 @@ from cv_bridge import CvBridge
         # The ips are then streamed from to write images to the ./img directory and send camera footage to the shipwreck measurement node.
         
         # Written by Jack Frings '26
+        # Uses code from Camera Switcher by James Randall '24
 
 class ImageCaptureNode(Node):
 
@@ -87,7 +88,7 @@ class ImageCaptureNode(Node):
                     # Find the name of that camera
                     cam_index = self.get_master_index(ip)
                     cam_name = self.master_config[cam_index]["nickname"]
-
+                    # If bottom camera is being recorded, send that bottom camera feed to the shipwreck measuring node
                     if cam_name == "Bottom":
                         img = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
                         self.shipwreck_pub.publish(img)
