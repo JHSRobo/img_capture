@@ -61,40 +61,43 @@ class ImageCaptureNode(Node):
         self.camera_adder = self.create_service(AddCamera, "add_ops_camera", self.add_camera_callback)
         self.shipwreck_pub = self.create_publisher(Image, "shipwreck", 10)
 
-        # Callback to capture the images from each feed to ./img contingent on self.recording
+        # Callback to capture the images from each feed to ./img contingent on self.photosphere and to the shipwreck node contingent on self.shipwreck
         frame_rate = 1.0 / 1000.0 
         self.create_timer(frame_rate, self.receive_cameras)
 
-        # Parameter deciding whether or not to actually capture the images 
-        self.recording = False 
-        self.declare_parameter("recording", self.recording)
-        
+        # Parameter deciding whether or not to actually capture the images and send it to the shipwreck measure node
+        self.shipwreck = False 
+        self.declare_parameter("Shipwreck", self.shipwreck)
+
+        # Parameter deciding whether or not to send images to photosphere file system
+        self.photosphere = False 
+        self.declare_parameter("Photosphere", self.photosphere)
         # Parameter regarding updating the cam_config on shutdown
         self.declare_parameter('save_changes_on_shutdown', False)
 
         self.create_timer(0.1, self.update_parameters)
 
     def update_parameters(self):
-        self.recording = self.get_parameter("recording").value 
+        self.shipwreck = self.get_parameter("Shipwreck").value 
+        self.photosphere = self.get_parameter("Photosphere").value
 
     # Receive camera input, write received frames to ./img, and show frames from a given camera to the display.
     def receive_cameras(self):
-        if self.recording:
-            # Iterate over each camera feed and their corresponding ip at the same time
-            for feed, ip in zip(self.camera_feeds, self.active_cameras):
-                # Read the frame if possible
-                frame = self.read_frame(feed)
-                if frame is not None:
-                    # Find the name of that camera
-                    cam_index = self.get_master_index(ip)
-                    cam_name = self.master_config[cam_index]["nickname"]
-                    # If bottom camera is being recorded, send that bottom camera feed to the shipwreck measuring node
-                    if cam_name == "Bottom":
-                        img = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
-                        self.shipwreck_pub.publish(img)
-                    # Write the image to the path corresponding to the camera's name
-                    cv2.imwrite(f"{self.img_write_path}/{cam_name}/{self.count}.png", frame)
-                    self.count += 1
+        # Iterate over each camera feed and their corresponding ip at the same time
+        for feed, ip in zip(self.camera_feeds, self.active_cameras):
+            # Read the frame if possible
+            frame = self.read_frame(feed)
+            if frame is not None:
+                # Find the name of that camera
+                cam_index = self.get_master_index(ip)
+                cam_name = self.master_config[cam_index]["nickname"]
+                # If bottom camera is being recorded, send that bottom camera feed to the shipwreck measuring node
+                if cam_name == "Bottom" and self.shipwreck:
+                    img = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
+                    self.shipwreck_pub.publish(img)
+                # Write the image to the path corresponding to the camera's name
+                cv2.imwrite(f"{self.img_write_path}/{cam_name}/{self.count}.png", frame)
+                self.count += 1
 
     
     # Grab the most recent frame from the camera feed
