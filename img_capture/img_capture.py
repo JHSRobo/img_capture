@@ -3,6 +3,8 @@ import cv2
 import os
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import Float32, Bool
+from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import Image
 from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from core.msg import Cam
@@ -61,6 +63,12 @@ class ImageCaptureNode(Node):
         self.camera_adder = self.create_service(AddCamera, "add_ops_camera", self.add_camera_callback)
         self.shipwreck_pub = self.create_publisher(Image, "shipwreck", 10)
 
+        self.yaw = -1
+        self.yaw_target = 0
+        self.yaw_sub = self.create_subscription(Vector3, 'orientation_sensor', self.yaw_callback, 10)
+        self.yaw_target_pub = self.create_publisher(Float32, 'yaw_target', 10)
+        self.pilot_ctrl_pub = self.create_publisher(Bool, 'photosphere_enabled', 10)
+
         # Callback to capture the images from each feed to ./img contingent on self.photosphere and to the shipwreck node contingent on self.shipwreck
         frame_rate = 1.0 / 1000.0 
         self.create_timer(frame_rate, self.receive_cameras)
@@ -80,25 +88,44 @@ class ImageCaptureNode(Node):
     def update_parameters(self):
         self.shipwreck = self.get_parameter("Shipwreck").value 
         self.photosphere = self.get_parameter("Photosphere").value
+        self.yaw_target = 0 
+        self.count = 0
+
+        self.pilot_ctrl_publish()
+        self.yaw_target_publish()
 
     # Receive camera input, write received frames to ./img, and show frames from a given camera to the display.
     def receive_cameras(self):
+        # Variable to keep trackof how many photosphere images there are before photosphere runs
+        count = 0
         # Iterate over each camera feed and their corresponding ip at the same time
         for feed, ip in zip(self.camera_feeds, self.active_cameras):
             # Read the frame if possible
-            frame = self.read_frame(feed)
-            if frame is not None:
-                # Find the name of that camera
-                cam_index = self.get_master_index(ip)
-                cam_name = self.master_config[cam_index]["nickname"]
-                # If bottom camera is being recorded, send that bottom camera feed to the shipwreck measuring node
-                if cam_name == "Bottom" and self.shipwreck:
-                    img = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
-                    self.shipwreck_pub.publish(img)
-                # Write the image to the path corresponding to the camera's name
-                cv2.imwrite(f"{self.img_write_path}/{cam_name}/{self.count}.png", frame)
-                self.count += 1
+            # Find the name of that camera
+            cam_index = self.get_master_index(ip)
+            cam_name = self.master_config[cam_index]["nickname"]
 
+            if self.photosphere and cam_name != "Bottom" and abs(self.yaw_target-self.yaw) < 0.5:
+                frame = self.read_frame(feed)
+                if frame is not None:
+                    # Write the image to the path corresponding to the camera's name
+                    cv2.imwrite(f"{self.img_write_path}/{cam_name}/{self.count}.png", frame)
+                    self.count += 1
+
+            # If bottom camera is being recorded, send that bottom camera feed to the shipwreck measuring node
+            if cam_name == "Bottom" and self.shipwreck:
+                img = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
+                self.shipwreck_pub.publish(img)
+
+        if self.count - count == 3:
+            if self.yaw_target == 360:
+                self.yaw_target = 0
+                self.photosphere = False
+                self.pilot_ctrl_publish()
+            else:
+                self.yaw_target += 40
+                self.yaw_target_publish()
+        
     
     # Grab the most recent frame from the camera feed
     def read_frame(self, feed):
@@ -106,6 +133,19 @@ class ImageCaptureNode(Node):
         if not success:
             return None
         else: return frame
+
+    def pilot_ctrl_publish(self):
+        msg = Bool()
+        msg.data = self.photosphere
+        self.pilot_ctrl_pub.publish(msg)
+
+    def yaw_callback(self, msg):
+        self.yaw = msg.x 
+
+    def yaw_target_publish(self):
+        msg = Float32()
+        msg.data = float(self.yaw_target)
+        self.yaw_target_pub.publish(msg)
 
 
     # When the AddCamera service is requested (from find_cameras.py), 
