@@ -1,6 +1,7 @@
 import toml, os, cv2
 import rclpy
 from rclpy.node import Node
+from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
@@ -40,7 +41,14 @@ class ImageCaptureNode(Node):
                 exit()
             # Creates a directory to store images from the new camera
             os.makedirs(f"{self.img_write_path}/{nickname}")
-      
+     
+        # We use the pilot_ctrl publisher to spin the ROV in a circle while taking photos before return control
+        # to the pilot.
+        self.yaw = 0
+        self.yaw_taget = -1
+        self.yaw_sub = self.create_subscription(Vector3, "orientation_sensor", self.yaw_callback, 10)
+        self.pilot_ctrl_pub = self.create_publisher(Bool, "photosphere_enabled", 10)
+
         # Publisher to send the camera feed to the shipwreck node
         self.shipwreck_pub = self.create_publisher(Image, "shipwreck", 10)
 
@@ -55,39 +63,56 @@ class ImageCaptureNode(Node):
 
         self.create_timer(0.1, self.update_parameters)
 
-        # Read the cameras as much as possible. This seem unintuitive right? If we don't want to overwhelm the 
-        # camera feed, why are we constantly reading? Well, that's just it. The camera freezes if we don't 
-        # read frames because it's a TCP stream. So we read as much as possible to not negatively impact
-        # the pilot's feed. 
+        # Reads frames as much as possible so as to not freeze the pilot TCP stream
         self.create_timer(0, self.read_cameras)
 
-        self.count = 0
-
-    def read_cameras(self):
-        for nickname in self.camera_feeds.keys():
-            feed = self.camera_feeds[nickname]
-            ret, frame = feed.read()
-            if self.photosphere and nickname != "Bottom":
-                cv2.imwrite(f"{self.img_write_path}/{nickname}/{self.count}.jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-                self.count += 1
-            if self.shipwreck and nickname == "Bottom":
-                frame = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
-                self.shipwreck_pub.publish(frame)
 
     def update_parameters(self):
         change = self.photosphere != self.get_parameter("Photosphere")
         if change:
             self.photosphere = self.get_parameter("Photosphere").value
             self.yaw_target = 0
+            self.pilot_ctrl_publish()
 
         self.shipwreck = self.get_parameter("Shipwreck").value
 
+    def pilot_ctrl_publish(self):
+        msg = Bool()
+        msg.data = self.photosphere 
+        self.pilot_ctrl_pub.publish(msg)
+
+    def yaw_callback(self, msg):
+        self.yaw = msg.x
+
+    # Returns true if the cam_config.toml file exists. Otherwise, return false.
     def check_config_integrity(self):
         if os.path.isfile(self.config_path): 
             with open(self.config_path) as f: 
                 self.config = toml.load(f)
             return True 
         return False 
+
+    def read_cameras(self):
+        change_target = False 
+        for nickname in self.camera_feeds.keys():
+            feed = self.camera_feeds[nickname]
+            ret, frame = feed.read()
+            if self.photosphere and nickname != "Bottom" and (abs(self.yaw_target-self.yaw) < 0.5 or abs(self.yaw_target-self.yaw) > 355.5):
+                cv2.imwrite(f"{self.img_write_path}/{nickname}/{self.yaw_target}.jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+                change_target = True
+            if self.shipwreck and nickname == "Bottom":
+                frame = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
+                self.shipwreck_pub.publish(frame)
+
+        if change_target:
+            if self.yaw_target == 360:
+                self.yaw_target = -1 
+                self.yaw = 0 
+                self.photosphere = False 
+                self.pilot_ctrl_publish()
+            else:
+                self.yaw_target += 90
+
 
 def main(args=None):
     os.system("rm -rf /home/jhsrobo/corews/src/img_capture/img/*")
