@@ -1,3 +1,6 @@
 [1]
 ip = "192.168.88.98"
-nickname = "Bottom"
+nickname = "Photosphere-U"
+[2]
+ip = "192.168.88.99"
+nickname = "Photosphere-D"

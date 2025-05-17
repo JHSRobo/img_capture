@@ -7,7 +7,7 @@ from cv_bridge import CvBridge
 class ImageCaptureNode(Node):
 
     def __init__(self):
-        super().__init__('camera_switcher')
+        super().__init__('img_capture')
 
         self.log = self.get_logger() # Quick reference for ROS logging
 
@@ -28,12 +28,12 @@ class ImageCaptureNode(Node):
         # Dictionary to store cv2 objects for each camera stream
         # The key for each value is the camera nickname. The value is the cv2 object.
         self.camera_feeds = {}
-
+        self.log.info(str(self.config))
         for key in self.config.keys():
             ip = self.config[key]["ip"]
             nickname = self.config[key]["nickname"]
             # Make a camera feed object
-            self.camera_feeds[nickname] = cv2.VideoCapture(f"tcp://{ip}:5000")
+            self.camera_feeds[nickname] = cv2.VideoCapture(f"http://{ip}:5000")
             # Make sure feed opened correctly
             if not self.camera_feeds[nickname].isOpened():
                 self.log.info("Failed to aquire camera: " + nickname)
@@ -68,7 +68,7 @@ class ImageCaptureNode(Node):
             feed = self.camera_feeds[nickname]
             ret, frame = feed.read()
             if self.photosphere and nickname != "Bottom":
-                cv2.imwrite(f"{self.img_write_path}/{nickname}/{self.count}.png", frame)
+                cv2.imwrite(f"{self.img_write_path}/{nickname}/{self.count}.jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
                 self.count += 1
             if self.shipwreck and nickname == "Bottom":
                 frame = self.bridge.cv2_to_imgmsg(frame, encoding="passthrough")
