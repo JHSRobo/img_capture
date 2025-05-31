@@ -1,6 +1,7 @@
 import toml, os, cv2
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import Float32, Bool
 from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -45,9 +46,14 @@ class ImageCaptureNode(Node):
         # We use the pilot_ctrl publisher to spin the ROV in a circle while taking photos before return control
         # to the pilot.
         self.yaw = 0
-        self.yaw_taget = -1
+        self.yaw_target = -1
         self.yaw_sub = self.create_subscription(Vector3, "orientation_sensor", self.yaw_callback, 10)
         self.pilot_ctrl_pub = self.create_publisher(Bool, "photosphere_enabled", 10)
+
+        msg = Bool()
+        msg.data = False
+        self.pilot_ctrl_pub.publish(msg)
+        self.photosphere_pub = self.create_publisher(Bool, "photosphere_ready", 10)
 
         # Publisher to send the camera feed to the shipwreck node
         self.shipwreck_pub = self.create_publisher(Image, "shipwreck", 10)
@@ -66,23 +72,24 @@ class ImageCaptureNode(Node):
         # Reads frames as much as possible so as to not freeze the pilot TCP stream
         self.create_timer(0, self.read_cameras)
 
-
     def update_parameters(self):
-        change = self.photosphere != self.get_parameter("Photosphere")
+        change = self.photosphere != self.get_parameter("Photosphere").value
         if change:
             self.photosphere = self.get_parameter("Photosphere").value
-            self.yaw_target = 0
+            self.yaw_target = self.yaw
+            self.start = self.yaw
             self.pilot_ctrl_publish()
 
         self.shipwreck = self.get_parameter("Shipwreck").value
 
     def pilot_ctrl_publish(self):
         msg = Bool()
-        msg.data = self.photosphere 
+        msg.data = self.photosphere #* (abs(self.yaw_target-self.yaw) / 90) + 0.1
         self.pilot_ctrl_pub.publish(msg)
 
     def yaw_callback(self, msg):
-        self.yaw = msg.x
+        if 0 <= msg.x <= 360:
+            self.yaw = msg.x
 
     # Returns true if the cam_config.toml file exists. Otherwise, return false.
     def check_config_integrity(self):
@@ -94,10 +101,16 @@ class ImageCaptureNode(Node):
 
     def read_cameras(self):
         change_target = False 
+        target = self.yaw_target
+        if self.yaw_target > 360:
+            target -= 360
+
         for nickname in self.camera_feeds.keys():
             feed = self.camera_feeds[nickname]
             ret, frame = feed.read()
-            if self.photosphere and nickname != "Bottom" and (abs(self.yaw_target-self.yaw) < 0.5 or abs(self.yaw_target-self.yaw) > 355.5):
+            #self.log.info("Yaw: " + str(self.yaw) + "\nYaw Target: " + str(self.yaw_target))
+            if self.photosphere and nickname != "Bottom" and (abs(target-self.yaw) < 1.0 or abs(target-self.yaw) > 359):
+                #self.log.info("Set")
                 cv2.imwrite(f"{self.img_write_path}/{nickname}/{self.yaw_target}.jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
                 change_target = True
             if self.shipwreck and nickname == "Bottom":
@@ -105,17 +118,21 @@ class ImageCaptureNode(Node):
                 self.shipwreck_pub.publish(frame)
 
         if change_target:
-            if self.yaw_target == 360:
-                self.yaw_target = -1 
-                self.yaw = 0 
+            if self.yaw_target >= self.start + 360:
                 self.photosphere = False 
                 self.pilot_ctrl_publish()
+                exit()
+                #self.yaw_target = -1 
+                #self.yaw = 0 
+                #self.photosphere = False 
             else:
-                self.yaw_target += 90
+                self.yaw_target += 45
+            #self.log.info("New Target: " + str(self.yaw_target))
 
 
 def main(args=None):
     os.system("rm -rf /home/jhsrobo/corews/src/img_capture/img/*")
+    os.makedirs("/home/jhsrobo/corews/src/img_capture/img/selected")
 
     rclpy.init(args=args)
 
